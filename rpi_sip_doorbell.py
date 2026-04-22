@@ -39,6 +39,10 @@ parser.add_argument('--delay', default=15.0, type=float,
     help='Pause in seconds until the call is canceled (default 15.0)')
 parser.add_argument('--gpio', default=27, type=int,
     help='GPIO pin which is configured as input (default 27)')
+parser.add_argument('--dtmf', default=None,
+    help='DTMF sequence to send after call is established (e.g. "*777*1*")')
+parser.add_argument('--dtmf-delay', default=2.0, type=float,
+    help='Delay in seconds before sending DTMF sequence (default 2.0)')
 
 args = parser.parse_args()
 
@@ -83,7 +87,14 @@ try:
         time.sleep(0.1)
         if got_event['value']:
             logger.info('Detected door ring event, initiating SIP call.')
-            sip.call(args.call, args.delay)
+            if sip.call(args.call, args.delay):
+                if args.dtmf:
+                    logger.info(f'Call established, waiting {args.dtmf_delay}s before sending DTMF sequence')
+                    time.sleep(args.dtmf_delay)
+                    if sip.send_dtmf_sequence(args.dtmf):
+                        logger.info('DTMF sequence sent successfully')
+                    else:
+                        logger.error('Failed to send DTMF sequence')
             logger.info('SIP call ended.')
             got_event['value'] = False
 except KeyboardInterrupt:

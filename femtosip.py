@@ -444,6 +444,80 @@ class SIP:
         return self.make_sip_packet('INVITE', uri, fields)
 
 
+    def make_dtmf_sip_packet(self, remote_id, remote_host, branch, tag, call_id, seq, digit, realm=None, nonce=None):
+        # Assemble the request uri
+        uri = 'sip:' + remote_id + '@' + remote_host
+
+        # Assemble the header fields
+        fields = collections.OrderedDict()
+        fields['Via'] = (
+            'SIP/2.0/' + self.protocol.upper() + ' ' + self.local_ip_header + ':' + str(self.port) +
+            ';rport;branch=' + branch)
+        fields['From'] = self.make_from_field(remote_host, tag)
+        fields['To'] = (
+            '<sip:' + remote_id + '@' + remote_host + '>')
+        fields['Call-ID'] = str(call_id)
+        fields['CSeq'] = str(seq) + ' INFO'
+        fields['Contact'] = (
+            '<sip:' + self.user + '@' + self.local_ip_header +
+            ':' + str(self.local_port) + ';transport=' + self.protocol.lower() + '>')
+        fields['Content-Type'] = 'application/dtmf-relay'
+        fields['Max-Forwards'] = '70'
+
+        if (not realm is None) and (not nonce is None):
+            fields['Authorization'] = (
+                'Digest username=\"' + self.user + "\", " +
+                          "realm=\"" + realm + "\", " +
+                          "nonce=\"" + nonce + "\", " +
+                            "uri=\"" + uri + "\", " +
+                       "response=\"" + digest_response(
+                            self.user, self.password,
+                            realm, nonce, 'INFO', uri) + "\", " +
+                      "algorithm=\"MD5\"")
+
+        # Create the DTMF payload
+        data = f'Signal={digit}\nDuration=250\n'.encode('utf-8')
+        return self.make_sip_packet('INFO', uri, fields, data)
+
+    def send_dtmf(self, digit):
+        """
+        Send a DTMF tone during an active call.
+        
+        digit: A single character representing the DTMF tone to send ('0'-'9', '*', '#', 'A'-'D')
+        """
+        if not hasattr(self, 'call_id') or not hasattr(self, 'remote_id') or not hasattr(self, 'remote_host'):
+            logger.error('No active call to send DTMF')
+            return False
+
+        self.seq += 1
+        branch = self.make_branch()
+        
+        packet = self.make_dtmf_sip_packet(
+            self.remote_id, self.remote_host,
+            branch, self.tag, self.call_id, self.seq,
+            digit, self.realm, self.nonce)
+        
+        try:
+            self.sock.send(packet)
+            return True
+        except:
+            logger.error('Error sending DTMF tone')
+            return False
+
+    def send_dtmf_sequence(self, sequence, delay=0.5):
+        """
+        Send a sequence of DTMF tones during an active call.
+        
+        sequence: A string of characters representing DTMF tones ('0'-'9', '*', '#', 'A'-'D')
+        delay: Time in seconds to wait between sending each tone
+        """
+        import time
+        for digit in sequence:
+            if not self.send_dtmf(digit):
+                return False
+            time.sleep(delay)
+        return True
+
     def make_cancel_sip_packet(self, remote_id, remote_host, branch, tag, call_id, seq):
         # Assemble the request uri
         uri = 'sip:' + remote_id + '@' + remote_host
